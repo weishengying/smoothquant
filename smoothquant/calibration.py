@@ -8,9 +8,9 @@ from collections import defaultdict
 from functools import partial
 import numpy as np
 from tqdm import tqdm
+import time
 
-
-def get_act_scales(model, tokenizer, dataset_path, num_samples=512, seq_len=512):
+def get_act_scales(model, tokenizer, dataset, num_samples=512, seq_len=512):
     model.eval()
     device = next(model.parameters()).device
     act_scales = {}
@@ -37,13 +37,12 @@ def get_act_scales(model, tokenizer, dataset_path, num_samples=512, seq_len=512)
                     functools.partial(stat_input_hook, name=name))
             )
 
-    dataset = load_dataset("json", data_files=dataset_path, split="train")
     dataset = dataset.shuffle(seed=42)
 
-    for i in tqdm(range(num_samples)):
+    for i in tqdm(range(num_samples), desc="Get Act Scales, Processing"):
         input_ids = tokenizer(dataset[i]["text"], return_tensors="pt",
-                              max_length=seq_len, truncation=True).input_ids.to(device)
-        model(input_ids)
+                                max_length=seq_len, truncation=True).input_ids.to(device)
+        model(input_ids) # 单次forward
 
     for h in hooks:
         h.remove()

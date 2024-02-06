@@ -8,7 +8,7 @@ def quantize_weight_per_channel_absmax(w, n_bits=8):
     scales = w.abs().max(dim=-1, keepdim=True)[0]
     q_max = 2**(n_bits-1)-1
     scales.clamp_(min=1e-5).div_(q_max)
-    w.div_(scales).round_().mul_(scales)
+    w.div_(scales).round_().mul_(scales) #quant && dequant
     return w
 
 
@@ -18,29 +18,29 @@ def quantize_weight_per_tensor_absmax(w, n_bits=8):
     scales = w.abs().max()
     q_max = 2**(n_bits-1)-1
     scales.clamp_(min=1e-5).div_(q_max)
-    w.div_(scales).round_().mul_(scales)
+    w.div_(scales).round_().mul_(scales) #quant && dequant
     return w
 
 
 @torch.no_grad()
 def quantize_activation_per_token_absmax(t, n_bits=8):
     t_shape = t.shape
-    t.view(-1, t_shape[-1])
+    t.view(-1, t_shape[-1]) #(num_tokens, hidden_size)
     scales = t.abs().max(dim=-1, keepdim=True)[0]
     q_max = 2**(n_bits-1)-1
     scales.clamp_(min=1e-5).div_(q_max)
-    t.div_(scales).round_().mul_(scales)
+    t.div_(scales).round_().mul_(scales) #quant && dequant
     return t
 
 
 @torch.no_grad()
 def quantize_activation_per_tensor_absmax(t, n_bits=8):
     t_shape = t.shape
-    t.view(-1, t_shape[-1])
+    t.view(-1, t_shape[-1]) #(num_tokens, hidden_size)
     scales = t.abs().max()
     q_max = 2**(n_bits-1)-1
     scales.clamp_(min=1e-5).div_(q_max)
-    t.div_(scales).round_().mul_(scales)
+    t.div_(scales).round_().mul_(scales) #quant && dequant
     return t
 
 
@@ -83,15 +83,20 @@ class W8A8Linear(nn.Module):
             self.bias = self.bias.to(*args, **kwargs)
         return self
 
+    def check_attribute(self, attribute_name):
+        return hasattr(self, attribute_name)
+
     @torch.no_grad()
     def forward(self, x):
+        if self.check_attribute('scales') and self.scales is not None:
+            x.div_(self.scales)
         q_x = self.act_quant(x)
         y = torch.functional.F.linear(q_x, self.weight, self.bias)
         q_y = self.output_quant(y)
         return q_y
 
     @staticmethod
-    def from_float(module, weight_quant='per_channel', act_quant='per_token', quantize_output=False):
+    def from_float(module, weight_quant='per_channel', act_quant='per_token', quantize_output=False, scales=None):
         assert isinstance(module, torch.nn.Linear)
         new_module = W8A8Linear(
             module.in_features, module.out_features, module.bias is not None, act_quant=act_quant, quantize_output=quantize_output)
@@ -104,6 +109,8 @@ class W8A8Linear(nn.Module):
         else:
             raise ValueError(f'Invalid weight_quant: {weight_quant}')
         new_module.weight_quant_name = weight_quant
+        if scales is not None:
+            new_module.scales = scales
         if module.bias is not None:
             new_module.bias = module.bias
         return new_module
